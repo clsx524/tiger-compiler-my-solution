@@ -69,7 +69,7 @@ fun eof() = let
 <INITIAL>"/"     => (Tokens.DIVIDE(yypos, yypos+1));
 <INITIAL>[A-Za-z][A-Za-z0-9_]* => (Tokens.ID(yytext,yypos, yypos + size(yytext)));
 <INITIAL>[0-9]+  => (Tokens.INT(Option.valOf(Int.fromString(yytext)), yypos, yypos + size(yytext)));
-<INITIAL>[ \t]  => (continue());
+<INITIAL>[ \t]+  => (continue());
 
 <COMMENTS>"*/"   => (cdepth := !cdepth - 1; (if !cdepth = 0 then (YYBEGIN INITIAL) else (YYBEGIN COMMENTS)); continue());
 <COMMENTS>"/*"   => (YYBEGIN COMMENTS; cdepth := !cdepth + 1; continue());
@@ -89,4 +89,4 @@ fun eof() = let
 <STRINGCONT>\\   => (YYBEGIN STRING; continue());
 <STRINGCONT>[\t\r\n ] => (continue());
 <STRINGCONT>.    => (ErrorMsg.error yypos ("illegal character in wrapped string " ^ yytext); continue());
-<INITIAL>.                => (ErrorMsg.error yypos ("illegal character " ^ yytext); continue());
+.                => (ErrorMsg.error yypos ("illegal character " ^ yytext); continue());

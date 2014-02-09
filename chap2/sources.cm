@@ -7,5 +7,3 @@ tokens.sml
 tiger.lex
 $/basis.cm
 $/smlnj-lib.cm
-
-testall.sml
