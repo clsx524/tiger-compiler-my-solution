@@ -37,28 +37,28 @@ struct
 				  Types.STRING => ()
 				| Types.BOTTOM => ()
 				| _ => ErrorMsg.error pos "string required"	
-	fun actual_ty (Types.NAME(symbol, tyOpt)) = (case !tyOpt of 
-	 											SOME t => actual_ty t
-       										  | NONE => raise Error)
-      | actual_ty t = t	
+	fun actual_ty (Types.NAME(symbol, tyOpt), pos) = (case !tyOpt of 
+	 											SOME t => actual_ty (t, pos)
+       										  | NONE => (ErrorMsg.error pos ("Type is not defined: " ^ Symbol.name(symbol));Types.BOTTOM))
+      | actual_ty (t, pos) = t	
 
-	fun eqTypes (ty1,ty2) = case (ty1,ty2) of 
+	fun eqTypes (ty1,ty2,pos) = case (ty1,ty2) of 
 				  (Types.BOTTOM, _) => true
 				| (_, Types.BOTTOM) => true
 				| (Types.RECORD(_,u1), Types.RECORD(_,u2)) => (u1 = u2)
 				| (Types.ARRAY(_,u1),Types.ARRAY(_,u2)) => 	(u1=u2)
-				| (Types.NAME(_,_), Types.NAME(_,_)) => eqTypes(actual_ty ty1, actual_ty ty2)
-				| (Types.NAME(_,_),_) => eqTypes(actual_ty ty1,ty2)
-				| (_,Types.NAME(_,_)) => eqTypes(ty1, actual_ty ty2)
+				| (Types.NAME(_,_), Types.NAME(_,_)) => eqTypes(actual_ty (ty1, pos), actual_ty (ty2, pos), pos)
+				| (Types.NAME(_,_),_) => eqTypes(actual_ty (ty1, pos), ty2, pos)
+				| (_,Types.NAME(_,_)) => eqTypes(ty1, actual_ty (ty2, pos), pos)
 				| (Types.RECORD(_,_), Types.NIL) => true
     			| (Types.NIL, Types.RECORD(_,_)) => true
     			| (_,_) => (ty1 = ty2)			
 	(* eqTypeList: Type.ty list * Type.ty list -> bool *)
-	fun eqTypeList ([],[]) = true
-       |eqTypeList([],l) = false
-       |eqTypeList(l,[]) = false
-       |eqTypeList ([ty1],[ty2]) = eqTypes(ty1,ty2)
-       |eqTypeList (hd1::l1, hd2::l2) = eqTypes(hd1,hd2) andalso eqTypeList(l1,l2)			
+	fun eqTypeList ([], [], pos) = true
+       |eqTypeList([], l, pos) = false
+       |eqTypeList(l, [], pos) = false
+       |eqTypeList ([ty1], [ty2], pos) = eqTypes(ty1, ty2, pos)
+       |eqTypeList (hd1::l1, hd2::l2, pos) = eqTypes(hd1, hd2, pos) andalso eqTypeList(l1, l2, pos)			
 
 	fun transExp (venv, tenv) = let 
 		fun trexp (A.VarExp v) = trvar v 											(* VarExp *)
@@ -69,8 +69,8 @@ struct
         		SOME (E.FunEntry {formals, result}) => let 
 					val argtys = map #ty (map trexp args)
         		in 
-        			if eqTypeList(formals, argtys) 
-        			then {exp = emptySymbol, ty = actual_ty result} 
+        			if eqTypeList(formals, argtys, pos) 
+        			then {exp = emptySymbol, ty = actual_ty (result, pos)} 
         			else (ErrorMsg.error pos ((S.name func) ^" function arguments do not agree"); {exp=emptySymbol,ty=Types.BOTTOM})
         		end
         	| 	SOME (E.VarEntry{ty}) => ((ErrorMsg.error pos " undefined function"); {exp = emptySymbol, ty = Types.BOTTOM})	
@@ -80,8 +80,8 @@ struct
 												(*val c = (map (fn s => print ((S.name func) ^ "c:" ^ (Types.toString s) ^ "\n")) argtys)
 												val d = (map (fn s => print ((S.name func) ^ "d:" ^ (Types.toString s) ^ "\n")) formals)*)
         									in 
-        										if eqTypeList(formals, argtys) 
-        										then {exp = (if !ind = false then name else emptySymbol), ty = actual_ty result} 
+        										if eqTypeList(formals, argtys, pos) 
+        										then {exp = (if !ind = false then name else emptySymbol), ty = actual_ty (result, pos)} 
         										else (ErrorMsg.error pos ((S.name func) ^" function arguments do not agree"); {exp=emptySymbol,ty=Types.BOTTOM})
         									end
         									| _ => (ErrorMsg.error pos ((S.name func) ^" function has not been declared or invalid enventry"); {exp=emptySymbol,ty=Types.BOTTOM}))
@@ -96,16 +96,16 @@ struct
 					{exp = _, ty = Types.INT} => checkInt(right', pos)
 				|   {exp = _, ty = Types.STRING} => checkString(right', pos)
 				|   {exp = _, ty = Types.ARRAY(_)} => (case oper of 
-						A.EqOp => (if eqTypes(#ty left', #ty right') then () else ErrorMsg.error pos "type mismatch")
-					|   A.NeqOp => (if eqTypes(#ty left', #ty right') then () else ErrorMsg.error pos "type mismatch")
+						A.EqOp => (if eqTypes(#ty left', #ty right', pos) then () else ErrorMsg.error pos "type mismatch")
+					|   A.NeqOp => (if eqTypes(#ty left', #ty right', pos) then () else ErrorMsg.error pos "type mismatch")
 					|   _ => (ErrorMsg.error pos "operation not valid for ARRAYS"))
 				| 	{exp = _, ty = Types.RECORD(_)} => (case oper of 
-						A.EqOp => (if eqTypes(#ty left', #ty right') then () else ErrorMsg.error pos "type mismatch")
-					|   A.NeqOp => (if eqTypes(#ty left', #ty right') then () else ErrorMsg.error pos "type mismatch")
+						A.EqOp => (if eqTypes(#ty left', #ty right', pos) then () else ErrorMsg.error pos "type mismatch")
+					|   A.NeqOp => (if eqTypes(#ty left', #ty right', pos) then () else ErrorMsg.error pos "type mismatch")
 					|   _ => (ErrorMsg.error pos "operation not valid for RECORDS"))	
 				| 	{exp=_,ty=Types.NIL} =>(case oper of
-						A.EqOp => (if eqTypes(#ty left', #ty right') then () else ErrorMsg.error pos "type mismatch")
-					|   A.NeqOp => (if eqTypes(#ty left', #ty right') then () else ErrorMsg.error pos "type mismatch")
+						A.EqOp => (if eqTypes(#ty left', #ty right', pos) then () else ErrorMsg.error pos "type mismatch")
+					|   A.NeqOp => (if eqTypes(#ty left', #ty right', pos) then () else ErrorMsg.error pos "type mismatch")
 					|   _ => (ErrorMsg.error pos "operation not valid for NIL"))
 				| 	{exp=_, ty = Types.BOTTOM} => ()
 				| 	_ => (ErrorMsg.error pos "invalid operation"));
@@ -114,7 +114,7 @@ struct
 				end
 
 		| trexp (A.RecordExp {fields,typ,pos}) = let  (* RecordExp *) 
-			val actualType = actual_ty (lookup (tenv, typ, pos))						
+			val actualType = actual_ty (lookup (tenv, typ, pos), pos)						
         	fun findFieldType sym = let
 	        	fun helper((s, ty), t) = if s = sym then ty else t
 		        in 
@@ -126,7 +126,7 @@ struct
 		    fun checkFieldTypes (sym, exp, pos) = let
 		    	val t = findFieldType sym
 		    	in
-		    		if eqTypes(t, #ty (trexp exp)) then () else ErrorMsg.error pos "Mismatching field types"
+		    		if eqTypes(t, #ty (trexp exp), pos) then () else ErrorMsg.error pos "Mismatching field types"
 		    	end 	
 		    val () = app checkFieldTypes fields
 
@@ -151,7 +151,7 @@ struct
         	val var_ty = #ty (trvar (var))
         	val exp_ty = #ty (trexp (exp))
         	in 
-        		if (eqTypes(var_ty, exp_ty)) then {exp = emptySymbol, ty = Types.UNIT}
+        		if (eqTypes(var_ty, exp_ty, pos)) then {exp = emptySymbol, ty = Types.UNIT}
         		else (ErrorMsg.error pos "type mismatch in var assignment";{exp = emptySymbol, ty = Types.BOTTOM})
         	end
 
@@ -164,7 +164,7 @@ struct
         	val else_ty = #ty (trexp elseexp)
         	in
         		(checkInt(trexp test,pos);
-        		if eqTypes(then_ty, else_ty) then {exp = emptySymbol, ty = then_ty}
+        		if eqTypes(then_ty, else_ty, pos) then {exp = emptySymbol, ty = then_ty}
         		else (ErrorMsg.error pos "then and else expressions must have same type"; 
 
         		{exp = emptySymbol,ty=then_ty}))
@@ -206,15 +206,15 @@ struct
       			checkInt(trexp size, pos);
         		case S.look(tenv, typ) of 
              		NONE => (ErrorMsg.error pos "undeclared  type"; {exp = emptySymbol, ty = Types.BOTTOM})
-          		|   SOME t => case actual_ty t  of
+          		|   SOME t => case actual_ty (t, pos)  of
           		 		Types.ARRAY (ty,unique) =>              
-               			(if eqTypes(tyinit, ty) then {exp = emptySymbol, ty = Types.ARRAY (ty,unique) }
+               			(if eqTypes(tyinit, ty, pos) then {exp = emptySymbol, ty = Types.ARRAY (ty,unique) }
                			else (ErrorMsg.error pos ("Expected: " ^ Types.toString ty ^ " Actual: " ^ Types.toString tyinit); {exp = emptySymbol, ty = Types.BOTTOM}))
                	|   _ => (ErrorMsg.error pos (S.name typ ^" is not of array type"); {exp = emptySymbol, ty = Types.BOTTOM})	
            	end
            	 	
 		and trvar (A.SimpleVar(id,pos)) = (case Symbol.look(venv, id) of 
-			SOME (E.VarEntry{ty}) => {exp = emptySymbol, ty = actual_ty ty}
+			SOME (E.VarEntry{ty}) => {exp = emptySymbol, ty = actual_ty (ty, pos)}
 	  	  | _ => (ErrorMsg.error pos ("undefined variable " ^ Symbol.name id); {exp = emptySymbol, ty = Types.BOTTOM}))
 
     	|   trvar (A.FieldVar(var, id, pos)) = (case trvar var of 
@@ -222,7 +222,7 @@ struct
                     fun idfinder (symid,_) = (symid = id)
                 in
                     (case (List.find idfinder fields) of 
-                    	SOME(_,ty) => {exp = emptySymbol, ty = actual_ty ty}
+                    	SOME(_,ty) => {exp = emptySymbol, ty = actual_ty (ty, pos)}
                       | NONE       => (ErrorMsg.error pos ("record does not have this field" ^ Symbol.name id);
                                     {exp = emptySymbol,ty = Types.BOTTOM}))
                 end
@@ -231,7 +231,7 @@ struct
     	|   trvar (A.SubscriptVar(var, exp, pos)) =
                 (checkInt((trexp exp), pos);
                 (case (#ty (trvar var)) of 
-                	Types.ARRAY(ty, _) => {exp = emptySymbol, ty=actual_ty ty}
+                	Types.ARRAY(ty, _) => {exp = emptySymbol, ty = actual_ty (ty, pos)}
                   | Types.BOTTOM => {exp = emptySymbol, ty = Types.BOTTOM}
                   | _ => (ErrorMsg.error pos ("not an array type"); {exp = emptySymbol, ty=Types.BOTTOM})))
 	in 
@@ -268,18 +268,22 @@ struct
 				|	_ => !thisre);
 			{somety = Types.ARRAY(res,ref ()), thisremain = !thisre})
 		end
-	|   transTy (tenv, A.NameTy(s,pos)) = let 
-		val actualType = (*actual_ty *)(lookup(tenv, s, pos))
+	|   transTy (tenv, A.NameTy(s,pos)) = let
+		val actualType = actual_ty (lookup(tenv, s, pos), pos)
+		val isArrayOrRecord = case actualType of
+							(Types.RECORD l) => true
+						| 	(Types.ARRAY(n,r)) => true
+						| 	_ => false 
 	in
 		if actualType <> Types.INT andalso actualType <> Types.STRING andalso actualType <> Types.NIL 
-			andalso actualType <> Types.UNIT
+			andalso actualType <> Types.UNIT andalso isArrayOrRecord = false
 		then (ErrorMsg.error pos "mutually recursive types should pass through record or array"; raise Error)
 		else {somety = Types.NAME(s, ref (SOME actualType)), thisremain = emptySymbol}
 	end
 
 	and transDecs (venv, tenv, l) = let
 		val {venv = v, tenv = t} = (foldl transDecName {venv=venv, tenv=tenv} l)
-		val {venv = v', tenv = t', remains = ty'} = (foldl transDec {venv = v, tenv = t, remains = emptySymbol} l)
+		val {venv = v', tenv = t', remains = ty', prev = p'} = (foldl transDec {venv = v, tenv = t, remains = emptySymbol, prev = emptySymbol} l)
 	in
 		{venv = v', tenv = t'}
 	end
@@ -314,27 +318,31 @@ struct
 		{venv = venv', tenv = tenv}
 	end
 
-	and transDec (A.VarDec{name,escape,typ=NONE,init,pos}, {venv,tenv,remains}) = let 
+	and transDec (A.VarDec{name,escape,typ=NONE,init,pos}, {venv,tenv,remains,prev}) = let 
 		val () = (if remains <> emptySymbol 
 				  then (ErrorMsg.error pos "definition of recursive types is interrupted"; raise Error) else ())
 		val {exp,ty} = transExp(venv,tenv) init
 		in 
-			{tenv=tenv, venv = S.enter(venv,name,E.VarEntry{ty = ty}), remains=remains}
+			if ty = Types.NIL then (ErrorMsg.error pos ("variable does not have a valid type" ^ (Symbol.name name));raise Error)
+			else {tenv=tenv, venv = S.enter(venv,name,E.VarEntry{ty = ty}), remains=remains, prev=name}
 		end
 
-	|	transDec (A.VarDec{name, escape, typ = SOME (symbol, pos), init, pos = varpos}, {venv,tenv,remains}) = let
+	|	transDec (A.VarDec{name, escape, typ = SOME (symbol, pos), init, pos = varpos}, {venv,tenv,remains,prev}) = let
 		val () = (if remains <> emptySymbol 
 				 then (ErrorMsg.error pos "definition of recursive types is interrupted"; raise Error) else ()) 
 		val {exp,ty} = transExp(venv,tenv) init
-		val ty2 = actual_ty (lookup (tenv,symbol,pos))		
+		val ty2 = actual_ty (lookup (tenv,symbol,pos), pos)		
 		in 
 			((*print(Types.toString(ty) ^ ":" ^ Types.toString(ty2));*)
-			if ty = ty2 then {tenv=tenv, venv = S.enter(venv,name,E.VarEntry{ty = ty}), remains=remains}
-			else (ErrorMsg.error pos "Mismatching types"; {tenv=tenv, venv = S.enter(venv,name,E.VarEntry{ty = ty}), remains=remains}))
+			if ty = Types.NIL orelse ty = ty2 then {tenv=tenv, venv = S.enter(venv,name,E.VarEntry{ty = ty2}), remains=remains, prev=prev}
+			else (ErrorMsg.error pos "Mismatching types"; {tenv=tenv, venv = S.enter(venv,name,E.VarEntry{ty = ty}), remains=remains, prev=name}))
 		end
 
-	|	transDec (A.TypeDec l, {venv,tenv,remains}) = let
-		val () = (if remains <> emptySymbol andalso (#name (List.nth (l,0))) <> remains then (print (Symbol.name remains); print (Symbol.name (#name (List.nth (l,0)))); raise Error) else ())
+	|	transDec (A.TypeDec l, {venv,tenv,remains,prev}) = let
+		val () = (if remains <> emptySymbol andalso (#name (List.nth (l,0))) <> remains 
+			then (ErrorMsg.error (#pos (List.nth (l,0))) "definition of recursive types is interrupted"; raise Error) else ())
+		val () = (if prev = (#name (List.nth (l,0))) 
+			then (ErrorMsg.error (#pos (List.nth (l,0))) "two types with the same name declared consecutively."; raise Error) else ())
 
 		fun replace(Types.NAME(n,r), ty) = r := SOME ty
 		  | replace(_,_) = raise Fail("not TypeDec") 
@@ -352,10 +360,10 @@ struct
 		(*val c = (map (fn s => print ((Symbol.name s) ^ ":" ^ Types.toString
 			(actual_ty (Option.valOf(S.look(tenv', s)))) ^ "\n")) names)*)
 		in
-			{venv = venv, tenv = tenv, remains = tr}
+			{venv = venv, tenv = tenv, remains = tr, prev=(#name (List.last l))}
 	    end
 
-	| 	transDec (A.FunctionDec l, {venv,tenv,remains}) = let 
+	| 	transDec (A.FunctionDec l, {venv,tenv,remains,prev}) = let 
 		val () = (if remains <> emptySymbol andalso (#name (List.nth (l,0))) <> remains then 
 			(print (Symbol.name remains); raise Error) else ())
 		fun getResultType (SOME(rt,pos)) = (case S.look(tenv,rt) of 
@@ -370,7 +378,9 @@ struct
 			val () = (case S.look(venv, name) of
 				 		SOME (Env.NameEntry(s, r, f)) => (case !f of 
 				 										false => f := true 
-				 									|   true => (ErrorMsg.error pos ("duplicate declaration of function "^ (Symbol.name name))))
+				 									|   true => (if prev = name
+				 												then ErrorMsg.error pos ("duplicate declaration of function "^ (Symbol.name name))
+				 												else f := false))
 				 	|	_ => raise Error)
 
 			val result_ty = getResultType result
@@ -381,7 +391,7 @@ struct
 			val mutualSymbol = (#exp res)
 			val () = print (Symbol.name mutualSymbol)
 			in
-				(if eqTypes((#ty res),result_ty) 
+				(if eqTypes((#ty res),result_ty, pos) 
 					then () else (ErrorMsg.error pos "function does not evaluate to correct type"); 
 				if sym <> emptySymbol andalso mutualSymbol <> emptySymbol
 					then raise Error else ();
@@ -390,7 +400,7 @@ struct
 
 			val thisre = foldl processBodies emptySymbol l
 		in 
-			{venv=venv,tenv=tenv,remains=thisre}
+			{venv=venv, tenv=tenv, remains=thisre, prev=(#name (List.last l))}
 		end
 
   	fun transProg ast = let 
