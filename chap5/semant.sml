@@ -5,6 +5,7 @@ end
 =
 struct
 	val nestLevel = ref 0
+	val emptySymbol = Symbol.symbol "empty"
 	exception Error
 
 	structure A = Absyn
@@ -76,8 +77,8 @@ struct
         	|   SOME (E.NameEntry(name, funcname)) => (case !funcname of
         		 							SOME (E.FunEntry {formals, result}) => let 
 												val argtys = map #ty (map trexp args)
-												val c = (map (fn s => print ((S.name func) ^ "c:" ^ (Types.toString s) ^ "\n")) argtys)
-												val d = (map (fn s => print ((S.name func) ^ "d:" ^ (Types.toString s) ^ "\n")) formals)
+												(*val c = (map (fn s => print ((S.name func) ^ "c:" ^ (Types.toString s) ^ "\n")) argtys)
+												val d = (map (fn s => print ((S.name func) ^ "d:" ^ (Types.toString s) ^ "\n")) formals)*)
         									in 
         										if eqTypeList(formals, argtys) 
         										then {exp = (), ty = actual_ty result} 
@@ -232,19 +233,50 @@ struct
 		trexp 
 	end
 
-	and transTy (tenv, A.NameTy(s,pos)) = lookup(tenv,s,pos)
-	|   transTy(tenv, A.RecordTy l) = let 
-		fun convFieldToTuple {name,escape,typ,pos} = (name,lookup(tenv,typ,pos))
-		val tupleList = map convFieldToTuple l
+	and transTy(tenv, A.RecordTy l) = let 
+			val thisre = ref emptySymbol
+			fun convFieldToTuple {name,escape,typ,pos} = let
+				val res = lookup(tenv,typ,pos)
+				val () = (case res of 
+							Types.NAME(nn, rr) => (case !rr of 
+													NONE => thisre := nn | _ => thisre := !thisre) | _ => thisre := !thisre)
+			in
+				(name, res)
+			end
+			val tupleList = map convFieldToTuple l
 		in
-			Types.RECORD(tupleList,ref ())
+			{somety = Types.RECORD(tupleList,ref ()), thisremain = !thisre}
 		end
-	|   transTy (tenv, A.ArrayTy(s,pos)) = Types.ARRAY(lookup(tenv,s,pos),ref ())
+
+	|   transTy (tenv, A.ArrayTy(s,pos)) = let
+			val thisre = ref emptySymbol
+			val res = lookup(tenv,s,pos)
+			val r = (case res of Types.NAME(nn, rr) => rr |	_ => ref NONE)
+		in
+			(thisre := (case !r of
+					SOME (Types.NAME(nn, rr)) => 
+							(if !rr <> SOME Types.INT andalso 
+								!rr <> SOME Types.STRING andalso 
+								!rr <> SOME Types.NIL andalso 
+								!rr <> SOME Types.UNIT 
+							then nn else !thisre)
+				|	_ => !thisre);
+			{somety = Types.ARRAY(res,ref ()), thisremain = !thisre})
+		end
+	|   transTy (tenv, A.NameTy(s,pos)) = let 
+		val actualType = actual_ty (lookup(tenv, s, pos))
+	in
+		if actualType <> Types.INT andalso actualType <> Types.STRING andalso actualType <> Types.NIL 
+			andalso actualType <> Types.UNIT
+		then (ErrorMsg.error pos "mutually recursive types should pass through record or array"; raise Error)
+		else {somety = Types.NAME(s, ref (SOME actualType)), thisremain = emptySymbol}
+	end
 
 	and transDecs (venv, tenv, l) = let
-		val res = foldr transDecName {venv=venv, tenv=tenv} l
+		val {venv = v, tenv = t} = (foldl transDecName {venv=venv, tenv=tenv} l)
+		val {venv = v', tenv = t', remains = ty'} = (foldl transDec {venv = v, tenv = t, remains = emptySymbol} l)
 	in
-		foldl transDec res l
+		{venv = v', tenv = t'}
 	end
 
 	and transDecName (A.VarDec l, {venv,tenv}) = {venv = venv, tenv = tenv}
@@ -255,7 +287,7 @@ struct
 		{venv = venv, tenv = tenv'}
 	end
 	|   transDecName (A.FunctionDec l, {venv,tenv}) = let
-		fun addHeader (name,venv) = (print ("addfunction: " ^ (Symbol.name name));
+		fun addHeader (name,venv) = ((*print ("addfunction: " ^ (Symbol.name name));*)
 			(S.enter (venv, name, E.NameEntry(name, ref NONE))))
 		fun getResultType (SOME(rt,pos)) = (case S.look(tenv,rt) of 
 											SOME(t)=> t
@@ -269,8 +301,8 @@ struct
 			val result_ty = getResultType result
 			val params' = map transparam params
 			in 
-				(print ("addfunction: " ^ (Symbol.name name));
-				(map (fn s => print ((S.name name) ^ "e:" ^ (Types.toString s) ^ "\n")) (map #ty params'));
+				((*print ("addfunction: " ^ (Symbol.name name));
+				(map (fn s => print ((S.name name) ^ "e:" ^ (Types.toString s) ^ "\n")) (map #ty params'));*)
 				S.enter(venv,name,E.NameEntry(name, ref (SOME (E.FunEntry{formals=map #ty params',result=result_ty})))))
 			end
 
@@ -279,46 +311,47 @@ struct
 		{venv = venv', tenv = tenv}
 	end
 
-	and transDec (A.VarDec{name,escape,typ=NONE,init,pos},{venv,tenv}) = let 
+	and transDec (A.VarDec{name,escape,typ=NONE,init,pos}, {venv,tenv,remains}) = let 
+		val () = (if remains <> emptySymbol 
+				  then (ErrorMsg.error pos "definition of recursive types is interrupted"; raise Error) else ())
 		val {exp,ty} = transExp(venv,tenv) init
 		in 
-			{tenv=tenv, venv = S.enter(venv,name,E.VarEntry{ty = ty})}
+			{tenv=tenv, venv = S.enter(venv,name,E.VarEntry{ty = ty}), remains=remains}
 		end
 
-	|	transDec (A.VarDec{name, escape, typ = SOME (symbol, pos), init, pos = varpos}, {venv, tenv}) = let 
+	|	transDec (A.VarDec{name, escape, typ = SOME (symbol, pos), init, pos = varpos}, {venv,tenv,remains}) = let
+		val () = (if remains <> emptySymbol 
+				 then (ErrorMsg.error pos "definition of recursive types is interrupted"; raise Error) else ()) 
 		val {exp,ty} = transExp(venv,tenv) init
 		val ty2 = actual_ty (lookup (tenv,symbol,pos))		
 		in 
-			(print(Types.toString(ty) ^ ":" ^ Types.toString(ty2));
-			if ty = ty2 then {tenv=tenv, venv = S.enter(venv,name,E.VarEntry{ty = ty})}
-			else (ErrorMsg.error pos "Mismatching types"; {tenv=tenv, venv = S.enter(venv,name,E.VarEntry{ty = ty})}))
+			((*print(Types.toString(ty) ^ ":" ^ Types.toString(ty2));*)
+			if ty = ty2 then {tenv=tenv, venv = S.enter(venv,name,E.VarEntry{ty = ty}), remains=remains}
+			else (ErrorMsg.error pos "Mismatching types"; {tenv=tenv, venv = S.enter(venv,name,E.VarEntry{ty = ty}), remains=remains}))
 		end
 
-	|	transDec (A.TypeDec l,{venv,tenv}) = let
+	|	transDec (A.TypeDec l, {venv,tenv,remains}) = let
+		val () = (if remains <> emptySymbol andalso (#name (List.nth (l,0))) <> remains then raise Error else ())
 		fun replace(Types.NAME(n,r), ty) = r := SOME ty
 		  | replace(_,_) = raise Fail("not TypeDec") 
-		fun replaceHeaders {name,ty,pos} = replace(Option.valOf(S.look (tenv, name)), transTy(tenv, ty))
-		val () = app replaceHeaders l
+		fun replaceHeaders ({name,ty,pos}, sym) = let 
+			val {somety = sty, thisremain = thisre} = transTy(tenv, ty)
+			val () = replace(Option.valOf(S.look (tenv, name)), sty)
+		in
+			(if sym <> emptySymbol andalso thisre <> emptySymbol then raise Error else ();
+			if thisre = emptySymbol then sym else thisre)
+		end
+
+		val tr = foldl replaceHeaders emptySymbol l
+
 		(*val c = (map (fn s => print ((Symbol.name s) ^ ":" ^ Types.toString
 			(actual_ty (Option.valOf(S.look(tenv', s)))) ^ "\n")) names)*)
 		in
-			{venv = venv, tenv = tenv}
+			{venv = venv, tenv = tenv, remains = tr}
 	    end
 
-(*	| 	transDec (A.FunctionDec[{name,params,result=SOME(rt,pos'),body,pos}],{venv,tenv}) = let 
-		val result_ty = lookup(tenv,rt, pos')
-		fun transparam{name,escape,typ,pos} = {name=name,ty=lookup(tenv, typ, pos)}
-		val params' = map transparam params
-		val () = case S.look(venv, name) of
-			      SOME (E.NameEntry(s, r)) => r := SOME (E.FunEntry{formals=map #ty params',result=result_ty})
-			    | _ => raise Error
-		fun enterparam ({name,ty},venv) = S.enter(venv,name,E.VarEntry{ty=ty})
-		val venv'' = foldl enterparam venv params' 
-		in 
-			transExp(venv'',tenv) body; {venv=venv,tenv=tenv}
-		end*)
-
-	| 	transDec (A.FunctionDec l,{venv,tenv}) = let 
+	| 	transDec (A.FunctionDec l, {venv,tenv,remains}) = let 
+		val () = (if remains <> emptySymbol andalso (#name (List.nth (l,0))) <> remains then raise Error else ())
 		fun getResultType (SOME(rt,pos)) = (case S.look(tenv,rt) of 
 											SOME(t)=> t
 										  | NONE => (ErrorMsg.error pos "Return type not valid";Types.BOTTOM))
@@ -340,7 +373,7 @@ struct
 
 			val () = app processBodies l
 		in 
-			{venv=venv,tenv=tenv}
+			{venv=venv,tenv=tenv,remains=remains}
 		end
 
   	fun transProg ast = let 
