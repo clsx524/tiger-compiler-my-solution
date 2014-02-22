@@ -51,7 +51,7 @@ expseq: expseq SEMICOLON exp        ()
       | exp                         ()
       |                             ()
 
-decs: decs dec                      ()
+decs: dec decs                      ()
     |                               ()
 
 dec: tydec                          ()
@@ -95,15 +95,15 @@ exp: LET decs IN expseq END			()
    | LPAREN expseq RPAREN            ()
    | MINUS exp %prec UMINUS          ()
 
-funclist: funclist COMMA exp         ()
+funclist: exp COMMA funclist         ()
         | exp                        ()
         |                            ()
 
-tyfields: tyfields COMMA ID COLON TYPEID     ()
+tyfields: ID COLON TYPEID COMMA tyfields     ()
         | ID COLON TYPEID                    ()
         |                                ()
 
-tyafields: tyafields COMMA ID EQ varexp  ()
+tyafields: ID EQ varexp COMMA tyafields   ()
         | ID EQ varexp                   ()
         |                                ()
 
