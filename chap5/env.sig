@@ -8,7 +8,7 @@ sig
   type ty
   datatype enventry = VarEntry of {ty: ty}
                     | FunEntry of {formals: ty list, result: ty}
-                    | NameEntry of Symbol.symbol * enventry option ref
+                    | NameEntry of Symbol.symbol * enventry option ref * bool ref
   val base_tenv : ty Symbol.table       (* predefined types *)
   val base_venv : enventry Symbol.table (* predefined functions *)
 end

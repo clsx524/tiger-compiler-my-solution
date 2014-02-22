@@ -4,7 +4,7 @@ struct
   	type ty = Types.ty
   	datatype enventry = VarEntry of {ty: ty}
                       | FunEntry of {formals: ty list, result: ty}
-                      | NameEntry of Symbol.symbol * enventry option ref
+                      | NameEntry of Symbol.symbol * enventry option ref * bool ref
   	val base_tenv = let
   		val t = Symbol.enter (Symbol.empty, Symbol.symbol "int", Types.INT)
   	in
