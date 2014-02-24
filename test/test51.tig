@@ -1,0 +1,18 @@
+/* error : definition of recursive functions is interrupted */
+let
+
+function do_nothing1(a: int, b: string):int=
+		(do_nothing2(a+1);do_nothing3(b); 0)
+
+function do_nothing() : int = (2)
+
+function do_nothing2(d: int):string =
+		(do_nothing1(d, "str"); do_nothing3("str"); " ")
+
+function do_nothing3(b: string): string = 
+		(do_nothing1(1,b); do_nothing2(1); " ")
+
+in
+	do_nothing1(0, "str2")
+end
+

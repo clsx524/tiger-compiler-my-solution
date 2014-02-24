@@ -353,7 +353,7 @@ struct
 			case S.look(venv, item) of
 			SOME (E.NameEntry(n,r,f)) => (ErrorMsg.error pos "Definition of recursive functions is interrupted")
 		|	SOME (E.VarEntry{ty}) => ()
-		|	_ => (ErrorMsg.error pos "Definition of recursive types is interrupted")
+		|	_ => (ErrorMsg.error pos ("Definition of recursive types is interrupted "^(Symbol.name item)))
 
 		val () = (app hasNonVarDec remains)
 
