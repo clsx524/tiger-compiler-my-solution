@@ -7,5 +7,5 @@ type c=d
 type d=a
 
 in
- ""
+ 	""
 end

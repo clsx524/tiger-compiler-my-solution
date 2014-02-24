@@ -1,0 +1,9 @@
+/* legal */
+let 
+
+type a = b
+type b = int
+
+in
+ 	""
+end

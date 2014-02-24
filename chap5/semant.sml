@@ -42,8 +42,9 @@ struct
 	fun actual_ty (Types.NAME(symbol, tyOpt), pos) = (
 			case !tyOpt of 
 	 		SOME t => actual_ty (t, pos)
-       	|   NONE => (ErrorMsg.error pos ("Type is not defined: " ^ Symbol.name(symbol)); Types.BOTTOM))
+       	|   NONE => Types.NAME(symbol, tyOpt))
       | actual_ty (t, pos) = t	
+      (*(ErrorMsg.error pos ("Type is not defined: " ^ Symbol.name(symbol)); Types.BOTTOM))*)
 
 	fun eqTypes (ty1, ty2, pos) = case (ty1, ty2) of 
 				  (Types.BOTTOM, _) => true
@@ -198,7 +199,7 @@ struct
         	else (ErrorMsg.error pos "Break must be within a loop"; {exp = (), sym = [], ty = Types.BOTTOM})
 
 		| trexp (A.LetExp{decs, body, pos}) = let							(* LetExp *)
-        	val {venv = venv', tenv = tenv'} = transDecs(venv, tenv, decs)
+        	val {venv = venv', tenv = tenv'} = transDecs(venv, tenv, decs, pos)
         	in 
         		transExp(venv',tenv') body
         	end
@@ -279,25 +280,33 @@ struct
 
 	|   transTy (tenv, A.NameTy(s,pos)) = let
 		val actualType = actual_ty (lookup(tenv, s, pos), pos)
-		val isArrayOrRecord = case actualType of
+		val isValid = case actualType of
 							(Types.RECORD l) => true
 						| 	(Types.ARRAY(n,r)) => true
-						| 	_ => false 
+						| 	(Types.NAME(n,r)) => if n = s then true else false 
+						|	_ => false
 	in
 		if actualType <> Types.INT andalso 
 		   actualType <> Types.STRING andalso 
 		   actualType <> Types.NIL andalso 
 		   actualType <> Types.UNIT andalso 
-		   isArrayOrRecord = false
+		   isValid = false
 		then (ErrorMsg.error pos "mutually recursive types should pass through record or array"; 
 			{somety = Types.BOTTOM, thisremain = []})
 		else {somety = Types.NAME(s, ref (SOME actualType)), thisremain = []}
 	end
 
-	and transDecs (venv, tenv, l) = let
+	and transDecs (venv, tenv, l, pos) = let
 		val emptyList : A.symbol list = []
 		val {venv = v, tenv = t} = (foldl transDecName {venv=venv, tenv=tenv} l)
-		val {venv = v', tenv = t', remains = ty', prev = p'} = (foldl transDec {venv = v, tenv = t, remains = emptyList, prev = (Symbol.symbol "0")} l)
+		val {venv = v', tenv = t', remains = re', prev = p'} = (foldl transDec {venv = v, tenv = t, remains = emptyList, prev = (Symbol.symbol "0")} l)
+		fun hasNonVarDec(item) = 
+			case S.look(venv, item) of
+			SOME (E.NameEntry(n,r,f)) => (ErrorMsg.error pos "Definition of recursive functions is interrupted")
+		|	SOME (E.VarEntry{ty}) => ()
+		|	_ => (ErrorMsg.error pos ("Definition of recursive types is interrupted "^(Symbol.name item)))
+
+		val () = (app hasNonVarDec re')
 	in
 		{venv = v', tenv = t'}
 	end
@@ -311,7 +320,7 @@ struct
 	end
 	|   transDecName (A.FunctionDec l, {venv, tenv}) = let
 		fun getResultType (SOME(rt,pos)) = (case S.look(tenv,rt) of 
-											SOME(t)=> t
+											SOME(t) => t
 										|   NONE => (ErrorMsg.error pos "Return type not valid"; Types.BOTTOM))
 		|   getResultType NONE = Types.UNIT
 					
@@ -376,6 +385,12 @@ struct
 
 		fun replaceHeaders ({name,ty,pos}, syms) = let 
 			val {somety = sty, thisremain = temp} = transTy(tenv, ty)
+			val () = (case sty of
+				(Types.NAME(n, r)) => (if n = typeName 
+										then ErrorMsg.error pos "mutually recursive types should pass through record or array"
+										else ())
+			|	_ => ())
+
 			val thisre = List.filter (fn x => x <> name) temp
 			val () = replace(Option.valOf(S.look (tenv, name)), sty)
 		in
@@ -425,10 +440,10 @@ struct
 			val {exp, sym = mutualList, ty} = transExp(venv',tenv) body
 			in
 				(if eqTypes(ty,result_ty, pos) 
-					then () else (ErrorMsg.error pos "function does not evaluate to correct type"); 
-				if List.exists (fn x => x = name) syms andalso mutualList = []
-					then List.filter (fn x => x <> name) (syms @ mutualList)
-					else (syms @ mutualList))
+					then () 
+					else (
+						ErrorMsg.error pos "function does not evaluate to correct type"); 
+				 		List.filter (fn x => x <> name) (syms @ mutualList))
 			end
 
 			val thisre = foldl processBodies remains l

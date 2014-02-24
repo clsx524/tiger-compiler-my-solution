@@ -1,0 +1,11 @@
+/* legal */
+let 
+
+type d = e
+type a = b
+type b = c
+type c = e
+
+in
+ 	""
+end
